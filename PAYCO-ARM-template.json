@@ -1,0 +1,332 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "apiProfile": "2018-03-01-hybrid",
+    "parameters": {
+
+        "vmName": {
+            "type": "string",
+            "allowedValues": [
+                "Dev-Env",
+                "QA",
+                "Non-Prod-DB",
+                "Non-Native-APP",
+                "Non-Native-DB"
+              ],
+            "metadata": {
+                "description": "The name of the Virtual Machine."
+            }
+        },
+
+        "adminUsername": {
+        "type": "string",
+        "defaultValue": "localadmin",
+        "metadata": {
+          "description": "Username for the Virtual Machine."
+        }
+      },
+
+      "adminPassword": {
+        "type": "securestring",
+        "metadata": {
+          "description": "Password for the Virtual Machine."
+        }
+      },
+
+      "virtualNetworkName": {
+        "type": "string",
+        "defaultValue": "Payco-VNet02",
+        "metadata": {
+          "description": "New or Existing VNet Name"
+        }
+      },
+
+      "virtualNetworkNewOrExisting": {
+        "type": "string",
+        "metadata": {
+          "description": "Boolean indicating whether the VNet is new or existing"
+        }
+      },
+
+      "virtualNetworkAddressPrefix": {
+        "type": "string",
+        "defaultValue": "172.16.0.0/16",
+        "metadata": {
+          "description": "VNet address prefix"
+        }
+      },
+
+      "virtualNetworkResourceGroup": {
+        "type": "string",
+        "allowedValues": [
+            "PaycoVNet-RG",
+            "VNet-RG"
+          ],
+        "metadata": {
+          "description": "Resource group of the VNet"
+        }
+      },
+
+      "vmSize": {
+        "type": "string",
+        "allowedValues": [
+          "Standard_D2_v3",
+          "Standard_D4_v3",
+          "Standard_F2s_v2"
+        ],
+        "metadata": {
+          "description": "The size of the Virtual Machine."
+        }
+      },
+
+      "subnetName": {
+        "type": "string",
+        "allowedValues": [
+            "PayCo-PublicSN",
+            "PayCo-PrivateSN"
+        ],
+        "metadata": {
+          "description": "New or Existing subnet Name"
+        }
+      },
+
+      "subnetAddressPrefix": {
+        "type": "string",
+        "allowedValues": [
+            "172.16.0.0/24",
+            "172.16.1.0/24"
+        ],
+        "metadata": {
+          "description": "Subnet address prefix"
+        }
+      },
+  
+      "imagePublisher": {
+        "type": "string",
+        "defaultValue": "Canonical",
+        "metadata": {
+          "description": "Maps to the publisher in the Azure Stack Platform Image Repository manifest file Eg: Canonical, Suse, OpenLogic "
+        }
+      },
+  
+      "imageOffer": {
+        "type": "string",
+        "defaultValue": "UbuntuServer",
+        "metadata": {
+          "description": "Maps to the Offer in the Azure Stack Platform Image Repository manifest file Eg: UbuntuServer, SlesServer, CentOS "
+        }
+      },
+  
+      "imageSku": {
+        "type": "string",
+        "allowedValues": [
+            "18.04-LTS",
+            "20.04-LTS",
+            "22.04-LTS"
+        ],
+        "metadata": {
+          "description": "Maps to the sku in the Azure Stack Platform Image Repository manifest file Eg: 12.SP1, 6.7 , 7.2"
+        }
+      }
+    },
+  
+    "variables": {
+        "publicIpAddressName": "[tolower(concat('pip-',parameters('vmName')))]",
+        "dnsNameForPublicIP": "[tolower(concat('dns-',variables('publicIpAddressName')))]",
+        "location": "[resourceGroup().location]",
+        "OSDiskName": "osdisk",
+        "nicName": "[tolower(concat('nic-',parameters('vmName')))]",
+        "storageAccountName": "[concat('sa-', uniquestring(resourceGroup().id))]",
+        "storageAccountType": "Premium_LRS",
+        "vmStorageAccountContainerName": "vhds",
+        "vmName": "[parameters('vmName')]",
+        "vnetId": {
+            "new": "[resourceId('Microsoft.Network/virtualNetworks',parameters('virtualNetworkName'))]",
+            "existing": "[resourceId(parameters('virtualNetworkResourceGroup'),'Microsoft.Network/virtualNetworks',parameters('virtualNetworkName'))]"
+          },
+        "subnetId": "[concat(variables('vnetId')[parameters('virtualNetworkNewOrExisting')],'/subnets/',parameters('subnetName'))]",
+        "networkSecurityGroupName": "[tolower(concat('nsg-',uniquestring(resourceGroup().id)))]",
+        "publicIPAddressType": "Static"
+    },
+    
+    "resources": [
+      {
+        "type": "Microsoft.Storage/storageAccounts",
+        "name": "[toLower(variables('storageAccountName'))]",
+        "location": "[variables('location')]",
+        "sku": {
+          "name": "[variables('storageAccountType')]"
+        },
+        "kind": "Storage"
+      },
+      {
+        "type": "Microsoft.Network/networkSecurityGroups",
+        "name": "[variables('networkSecurityGroupName')]",
+        "location": "[variables('location')]",
+        "properties": {
+          "securityRules": [
+            {
+              "name": "ssh",
+              "properties": {
+                "description": "Allow SSH",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRange": "22",
+                "sourceAddressPrefix": "*",
+                "destinationAddressPrefix": "*",
+                "access": "Allow",
+                "priority": 200,
+                "direction": "Inbound"
+              }
+            },
+            {
+                "name": "HTTPS",
+                "properties": {
+                  "description": "Allow HTTPS",
+                  "protocol": "Tcp",
+                  "sourcePortRange": "*",
+                  "destinationPortRange": "443",
+                  "sourceAddressPrefix": "*",
+                  "destinationAddressPrefix": "*",
+                  "access": "Allow",
+                  "priority": 210,
+                  "direction": "Inbound"
+                }
+              },
+              {
+                "name": "HTTP",
+                "properties": {
+                  "description": "Allow HTTP",
+                  "protocol": "Tcp",
+                  "sourcePortRange": "*",
+                  "destinationPortRange": "80",
+                  "sourceAddressPrefix": "*",
+                  "destinationAddressPrefix": "*",
+                  "access": "Allow",
+                  "priority": 220,
+                  "direction": "Inbound"
+                }
+              }
+          ]
+        }
+      },
+      {
+        "condition": "[equals(parameters('virtualNetworkNewOrExisting'),'new')]",
+        "type": "Microsoft.Network/virtualNetworks",
+        "name": "[parameters('virtualNetworkName')]",
+        "location": "[variables('location')]",
+        "properties": {
+            "addressSpace": {
+                "addressPrefixes": [
+                  "[parameters('virtualNetworkAddressPrefix')]"
+                ]
+              },
+  
+              "subnets": [
+                {
+                  "name": "[parameters('subnetName')]",
+                  "properties": {
+                    "addressPrefix": "[parameters('subnetAddressPrefix')]"
+                  }
+                }
+              ]
+        }
+      },
+      {
+            "type": "Microsoft.Network/publicIpAddresses",
+            "apiVersion": "2015-06-15",
+            "name": "[variables('publicIpAddressName')]",
+            "location": "[variables('location')]",
+            "sku": {
+                "name": "Basic",
+                "tier": "Regional"
+            },
+            "properties": {
+                "publicIpAllocationMethod": "[variables('publicIPAddressType')]",
+                "publicIPAddressVersion": "IPv4",
+                "idleTimeoutInMinutes": 4
+            }
+        },   
+      {
+        "type": "Microsoft.Network/networkInterfaces",
+        "name": "[variables('nicName')]",
+        "location": "[variables('location')]",
+        "dependsOn": [
+            "[resourceId('Microsoft.Network/virtualNetworks/', parameters('virtualNetworkName'))]",
+            "[variables('networkSecurityGroupName')]",
+            "[resourceId('Microsoft.Network/publicIpAddresses/', variables('publicIpAddressName'))]"
+        ],
+  
+        "properties": {
+          "networkSecurityGroup": {
+            "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+          },
+  
+            "ipConfigurations": [
+                {
+                    "name": "ipconfig1",
+                    "properties": {
+                        "privateIPAllocationMethod": "Dynamic",
+                        "subnet": {
+                            "id": "[variables('subnetId')]"
+                        },
+                        "publicIPAddress": {
+                            "id": "[resourceID('Microsoft.Network/publicIPAddresses/',variables('publicIpAddressName'))]"
+                        }
+                    }
+                }
+            ]
+        }
+      },
+      {
+        "type": "Microsoft.Compute/virtualMachines",
+        "name": "[variables('vmName')]",
+        "location": "[variables('location')]",
+        "dependsOn": [
+          "[concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]",
+          "[concat('Microsoft.Network/networkInterfaces/', variables('nicName'))]"
+        ],
+  
+        "properties": {
+          "hardwareProfile": {
+            "vmSize": "[parameters('vmSize')]"
+          },
+  
+          "osProfile": {
+            "computerName": "[variables('vmName')]",
+            "adminUsername": "[parameters('adminUsername')]",
+            "adminPassword": "[parameters('adminPassword')]"
+          },
+  
+          "storageProfile": {
+            "imageReference": {
+              "publisher": "[parameters('imagePublisher')]",
+              "offer": "[parameters('imageOffer')]",
+              "sku": "[parameters('imageSku')]",
+              "version": "latest"
+            },
+  
+            "osDisk": {
+              "name": "osdisk",
+              "createOption": "FromImage"
+            }
+          },
+  
+          "networkProfile": {
+            "networkInterfaces": [
+              {
+                "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]"
+              }
+            ]
+          },
+  
+          "diagnosticsProfile": {
+            "bootDiagnostics": {
+              "enabled": "true",
+              "storageUri": "[concat(reference(concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName')), providers('Microsoft.Storage', 'storageAccounts').apiVersions[0]).primaryEndpoints.blob)]"
+            }
+          }
+        }
+      }
+    ]
+  }

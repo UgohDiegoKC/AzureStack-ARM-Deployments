@@ -1,0 +1,232 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "apiProfile": "2018-03-01-hybrid",
+    "parameters": {
+        "vmName": {
+            "defaultValue": "Coronation-VM",
+            "type": "string",
+            "metadata": {
+                "description": "The name of the Virtual Machine."
+            }
+        },
+        "adminUsername": {
+        "type": "string",
+        "metadata": {
+          "description": "Username for the Virtual Machine. Default value is localadmin"
+        },
+        "defaultValue": "localadmin"
+      },
+  
+      "adminPassword": {
+        "type": "securestring",
+        "defaultValue": "[concat('Subscription#',substring(resourcegroup().id,15,36))]",
+        "metadata": {
+          "description": "Password for the Virtual Machine. Default value is 'Subscription#<subscription id>'"
+        }
+      },
+  
+      "imagePublisher": {
+        "type": "string",
+        "defaultValue": "OpenLogic",
+        "metadata": {
+          "description": "Maps to the publisher in the Azure Stack Platform Image Repository manifest file Eg: Canonical, Suse, OpenLogic "
+        }
+      },
+  
+      "imageOffer": {
+        "type": "string",
+        "defaultValue": "CentOS",
+        "metadata": {
+          "description": "Maps to the Offer in the Azure Stack Platform Image Repository manifest file Eg: UbuntuServer, SlesServer, CentOS "
+        }
+      },
+  
+      "imageSku": {
+        "type": "string",
+        "defaultValue": "7_8",
+        "metadata": {
+          "description": "Maps to the sku in the Azure Stack Platform Image Repository manifest file Eg: 12.SP1, 6.7 , 7.2"
+        }
+      },
+  
+      "vmSize": {
+        "type": "string",
+        "defaultValue": "Standard_F16s_v2",
+        "metadata": {
+          "description": "The size of the Virtual Machine."
+        }
+      }
+    },
+  
+    "variables": {
+      "publicIpAddressName": "[tolower(concat('pip-',parameters('vmName')))]",
+      "dnsNameForPublicIP": "[tolower(concat('dns-',variables('publicIpAddressName')))]",
+      "location": "[resourceGroup().location]",
+      "OSDiskName": "osdisk",
+      "nicName": "[tolower(concat('nic-',uniquestring(resourceGroup().id)))]",
+      "addressPrefix": "10.0.0.0/16",
+      "subnetName": "Coronation-SN",
+      "subnetPrefix": "10.0.1.0/24",
+      "storageAccountName": "[concat('sa-', uniquestring(resourceGroup().id))]",
+      "storageAccountType": "Premium_LRS",
+      "vmStorageAccountContainerName": "vhds",
+      "vmName": "Coronation-VM",
+      "virtualNetworkName": "Coronation-VN",
+      "vnetID": "[resourceId('Microsoft.Network/virtualNetworks',variables('virtualNetworkName'))]",
+      "subnetRef": "[concat(variables('vnetID'),'/subnets/',variables('subnetName'))]",
+      "networkSecurityGroupName": "[tolower(concat('nsg-',uniquestring(resourceGroup().id)))]"
+    },
+
+    "resources": [
+      {
+        "type": "Microsoft.Storage/storageAccounts",
+        "name": "[toLower(variables('storageAccountName'))]",
+        "location": "[variables('location')]",
+        "sku": {
+          "name": "[variables('storageAccountType')]"
+        },
+        "kind": "Storage"
+      },
+      {
+        "type": "Microsoft.Network/networkSecurityGroups",
+        "name": "[variables('networkSecurityGroupName')]",
+        "location": "[resourceGroup().location]",
+        "properties": {
+          "securityRules": [
+            {
+              "name": "ssh",
+              "properties": {
+                "description": "Allow RDP",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRange": "22",
+                "sourceAddressPrefix": "*",
+                "destinationAddressPrefix": "*",
+                "access": "Allow",
+                "priority": 200,
+                "direction": "Inbound"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Microsoft.Network/virtualNetworks",
+        "name": "[variables('virtualNetworkName')]",
+        "location": "[variables('location')]",
+        "properties": {
+          "addressSpace": {
+            "addressPrefixes": [
+              "[variables('addressPrefix')]"
+            ]
+          },
+  
+          "subnets": [
+            {
+              "name": "[variables('subnetName')]",
+              "properties": {
+                "addressPrefix": "[variables('subnetPrefix')]"
+              }
+            }
+          ]
+        }
+      },
+      {
+            "type": "Microsoft.Network/publicIpAddresses",
+            "apiVersion": "2015-06-15",
+            "name": "[variables('publicIpAddressName')]",
+            "location": "[variables('location')]",
+            "sku": {
+                "name": "Basic",
+                "tier": "Regional"
+            },
+            "properties": {
+                "publicIpAllocationMethod": "Static",
+                "publicIPAddressVersion": "IPv4",
+                "idleTimeoutInMinutes": 4
+            }
+        },   
+      {
+        "type": "Microsoft.Network/networkInterfaces",
+        "name": "[variables('nicName')]",
+        "location": "[variables('location')]",
+        "dependsOn": [
+          "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+          "[variables('networkSecurityGroupName')]",
+          "[resourceId('Microsoft.Network/publicIpAddresses/', variables('publicIpAddressName'))]"
+        ],
+  
+        "properties": {
+          "networkSecurityGroup": {
+            "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+          },
+  
+            "ipConfigurations": [
+                {
+                    "name": "ipconfig1",
+                    "properties": {
+                        "privateIPAllocationMethod": "Dynamic",
+                        "subnet": {
+                            "id": "[variables('subnetRef')]"
+                        },
+                        "publicIPAddress": {
+                            "id": "[resourceID('Microsoft.Network/publicIPAddresses/',variables('publicIpAddressName'))]"
+                        }
+                    }
+                }
+            ]
+        }
+      },
+      {
+        "type": "Microsoft.Compute/virtualMachines",
+        "name": "[variables('vmName')]",
+        "location": "[variables('location')]",
+        "dependsOn": [
+          "[concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]",
+          "[concat('Microsoft.Network/networkInterfaces/', variables('nicName'))]"
+        ],
+  
+        "properties": {
+          "hardwareProfile": {
+            "vmSize": "[parameters('vmSize')]"
+          },
+  
+          "osProfile": {
+            "computerName": "[variables('vmName')]",
+            "adminUsername": "[parameters('adminUsername')]",
+            "adminPassword": "[parameters('adminPassword')]"
+          },
+  
+          "storageProfile": {
+            "imageReference": {
+              "publisher": "[parameters('imagePublisher')]",
+              "offer": "[parameters('imageOffer')]",
+              "sku": "[parameters('imageSku')]",
+              "version": "latest"
+            },
+  
+            "osDisk": {
+              "name": "osdisk",
+              "createOption": "FromImage"
+            }
+          },
+  
+          "networkProfile": {
+            "networkInterfaces": [
+              {
+                "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]"
+              }
+            ]
+          },
+  
+          "diagnosticsProfile": {
+            "bootDiagnostics": {
+              "enabled": "true",
+              "storageUri": "[concat(reference(concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName')), providers('Microsoft.Storage', 'storageAccounts').apiVersions[0]).primaryEndpoints.blob)]"
+            }
+          }
+        }
+      }
+    ]
+  }
